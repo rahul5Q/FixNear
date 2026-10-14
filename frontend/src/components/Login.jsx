@@ -32,9 +32,14 @@ function Login({ onLogin }) {
           'user',
           JSON.stringify({
             name: data.name,
-            email: data.email
+            email: data.email,
+            role: data.role || 'customer',
+            provider_name: data.provider_name || null
           })
         )
+        if (data.access_token) {
+          localStorage.setItem('token', data.access_token)
+        }
         onLogin(data)
       } else {
         setMessage(data.detail || data.message || 'Invalid email or password')

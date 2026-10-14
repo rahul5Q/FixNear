@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { API_BASE_URL } from '../config'
 
-function MyBookings({ user, onBackToDashboard }) {
+function MyBookings({ user, token, onBackToDashboard }) {
   const [bookings, setBookings] = useState([])
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
   const [cancellingId, setCancellingId] = useState(null)
   const [message, setMessage] = useState('')
+
+  const authToken = token || localStorage.getItem('token')
 
   // Rating & review state
   const [activeRatingBookingId, setActiveRatingBookingId] = useState(null)
@@ -28,18 +30,16 @@ function MyBookings({ user, onBackToDashboard }) {
     if (!user?.email) return
     let isMounted = true
 
+    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+
     fetch(
       `${API_BASE_URL}/bookings?user_email=${encodeURIComponent(user.email)}`,
-      {
-        headers: {
-          'X-User-Email': user.email
-        }
-      }
+      { headers }
     )
       .then((response) => response.json())
       .then((data) => {
         if (isMounted) {
-          setBookings(data)
+          setBookings(Array.isArray(data) ? data : [])
           setLoading(false)
         }
       })
@@ -66,22 +66,20 @@ function MyBookings({ user, onBackToDashboard }) {
     return () => {
       isMounted = false
     }
-  }, [user?.email])
+  }, [user?.email, authToken])
 
   const refreshUserBookings = () => {
     if (!user?.email) return
     setLoading(true)
+    const headers = authToken ? { 'Authorization': `Bearer ${authToken}` } : {}
+
     fetch(
       `${API_BASE_URL}/bookings?user_email=${encodeURIComponent(user.email)}`,
-      {
-        headers: {
-          'X-User-Email': user.email
-        }
-      }
+      { headers }
     )
       .then((response) => response.json())
       .then((data) => {
-        setBookings(data)
+        setBookings(Array.isArray(data) ? data : [])
         setLoading(false)
       })
       .catch((error) => {
@@ -107,18 +105,20 @@ function MyBookings({ user, onBackToDashboard }) {
     setCancellingId(bookingId)
     setMessage('')
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(
         `${API_BASE_URL}/bookings/${bookingId}/status`,
         {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Email': user?.email
-          },
+          headers,
           body: JSON.stringify({
-            status: 'Rejected',
-            role: 'customer',
-            updater_email: user?.email
+            status: 'Rejected'
           })
         }
       )
@@ -148,15 +148,18 @@ function MyBookings({ user, onBackToDashboard }) {
     setReviewError('')
 
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(`${API_BASE_URL}/reviews`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Email': user.email
-        },
+        headers,
         body: JSON.stringify({
           booking_id: booking.id,
-          customer_email: user.email,
           rating: currentRating,
           comment: reviewComment.trim()
         })

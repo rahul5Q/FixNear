@@ -54,6 +54,16 @@ def run_tests():
     created_booking_ids = []
     test_user_emails = []
 
+    # Record baseline database counts prior to test execution
+    initial_counts = None
+    try:
+        from pymongo import MongoClient
+        _init_c = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/")
+        _init_db = _init_c["local_service_marketplace"]
+        initial_counts = {col: _init_db[col].count_documents({}) for col in ['services', 'users', 'providers', 'reviews', 'bookings']}
+    except Exception:
+        pass
+
     try:
         # Step 1: Ensure backend server is accessible
         if not is_port_open(8000):
@@ -151,7 +161,14 @@ def run_tests():
         # 3.3 Successful login with raw mixed-case/spaces email -> 200 OK & normalized email returned
         status, res = make_request("POST", "/login", data={"email": "  PHASE6B_TESTUSER@EXAMPLE.COM  ", "password": "securepassword123"})
         assert status == 200 and res.get("email") == normalized_email, f"Login failed: {res}"
-        print("[PASS] Login with mixed-case/spaces email succeeded (200 OK) and returned normalized email.")
+        user_token = res.get("access_token")
+        assert user_token is not None, "Login did not return access_token"
+        print("[PASS] Login with mixed-case/spaces email succeeded (200 OK) and returned normalized email & JWT.")
+
+        # Authenticate provider Amit for provider operations
+        status, p_res = make_request("POST", "/login", data={"email": "amit@provider.fixnear.com", "password": "ProviderPass123!"})
+        assert status == 200 and "access_token" in p_res, f"Provider login failed: {p_res}"
+        provider_token = p_res["access_token"]
 
         # -------------------------------------------------------------
         # SUITE 4: Profile Operations with Email Normalization
@@ -160,12 +177,12 @@ def run_tests():
 
         # 4.1 GET /profile with mixed-case and matching header -> 200 OK
         quoted_email = urllib.parse.quote(raw_test_email)
-        status, res = make_request("GET", f"/profile?email={quoted_email}", headers={"X-User-Email": raw_test_email})
+        status, res = make_request("GET", f"/profile?email={quoted_email}", headers={"Authorization": f"Bearer {user_token}"})
         assert status == 200 and res.get("email") == normalized_email, f"GET profile failed: {res}"
         print("[PASS] GET /profile normalized email lookup succeeded (200 OK).")
 
         # 4.2 PUT /profile updating name -> 200 OK
-        status, res = make_request("PUT", "/profile", data={"email": raw_test_email, "name": "Updated 6B Name"}, headers={"X-User-Email": normalized_email})
+        status, res = make_request("PUT", "/profile", data={"email": raw_test_email, "name": "Updated 6B Name"}, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 200 and res.get("name") == "Updated 6B Name", f"PUT profile failed: {res}"
         print("[PASS] PUT /profile with normalized email succeeded (200 OK).")
 
@@ -181,7 +198,7 @@ def run_tests():
             "provider": provider_name,
             "date": "2026/11/25",
             "description": "Short circuit problem"
-        })
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 400, f"Expected 400 for bad date format, got {status}: {res}"
         print("[PASS] Booking with invalid date format rejected (400 Bad Request).")
 
@@ -192,7 +209,7 @@ def run_tests():
             "provider": provider_name,
             "date": "2026-11-25",
             "description": "No"
-        })
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 400, f"Expected 400 for short description, got {status}: {res}"
         print("[PASS] Booking with description < 3 chars rejected (400 Bad Request).")
 
@@ -203,7 +220,7 @@ def run_tests():
             "provider": provider_name,
             "date": "2026-11-25",
             "description": "A" * 1001
-        })
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 400, f"Expected 400 for description > 1000 chars, got {status}: {res}"
         print("[PASS] Booking with description > 1000 chars rejected (400 Bad Request).")
 
@@ -214,14 +231,14 @@ def run_tests():
             "provider": provider_name,
             "date": "2026-11-25",
             "description": "Fan making noise and not rotating properly"
-        })
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 200 and "booking_id" in res, f"Valid booking creation failed: {res}"
         b_id = res["booking_id"]
         created_booking_ids.append(b_id)
         print(f"[PASS] Valid booking created with normalized email (ID: {b_id}).")
 
         # 5.5 Query bookings by mixed-case email -> 200 OK
-        status, b_list = make_request("GET", f"/bookings?user_email={urllib.parse.quote('  PHASE6B_TESTUSER@EXAMPLE.COM  ')}", headers={"X-User-Email": normalized_email})
+        status, b_list = make_request("GET", f"/bookings?user_email={urllib.parse.quote('  PHASE6B_TESTUSER@EXAMPLE.COM  ')}", headers={"Authorization": f"Bearer {user_token}"})
         assert status == 200 and len(b_list) > 0, f"Booking lookup failed: {b_list}"
         assert b_list[0]["user_email"] == normalized_email
         print("[PASS] GET /bookings with mixed-case email retrieved normalized records.")
@@ -233,20 +250,17 @@ def run_tests():
 
         # Update booking to Completed by provider
         status, res = make_request("PATCH", f"/bookings/{b_id}/status", data={
-            "status": "Completed",
-            "role": "provider",
-            "provider_name": provider_name
-        }, headers={"X-Role": "provider"})
+            "status": "Completed"
+        }, headers={"Authorization": f"Bearer {provider_token}"})
         assert status == 200, f"Provider status update failed: {res}"
         print("[PASS] Booking marked as 'Completed'.")
 
         # 6.1 Review comment too long (>1000 chars) -> 400 Bad Request
         status, res = make_request("POST", "/reviews", data={
             "booking_id": b_id,
-            "customer_email": normalized_email,
             "rating": 5,
             "comment": "A" * 1001
-        }, headers={"X-User-Email": normalized_email})
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 400, f"Expected 400 for comment > 1000 chars, got {status}: {res}"
         assert "cannot exceed 1000 characters" in str(res.get("detail", ""))
         print("[PASS] Review comment > 1000 characters rejected (400 Bad Request).")
@@ -254,26 +268,22 @@ def run_tests():
         # 6.2 Legitimate review with mixed case email -> 200 OK
         status, res = make_request("POST", "/reviews", data={
             "booking_id": b_id,
-            "customer_email": raw_test_email,
             "rating": 5,
             "comment": "Quick and polite professional!"
-        }, headers={"X-User-Email": normalized_email})
+        }, headers={"Authorization": f"Bearer {user_token}"})
         assert status == 200 and res.get("customer_email") == normalized_email, f"Review submission failed: {res}"
         print("[PASS] Legitimate review submitted with normalized email.")
 
         # 6.3 Verify Completed Booking Final Lock
         status, res = make_request("PATCH", f"/bookings/{b_id}/status", data={
-            "status": "Pending",
-            "role": "provider",
-            "provider_name": provider_name
-        }, headers={"X-Role": "provider"})
+            "status": "Pending"
+        }, headers={"Authorization": f"Bearer {provider_token}"})
         assert status == 400, f"Expected 400 lock violation, got {status}: {res}"
         print("[PASS] Completed booking final lock preserved (400 Bad Request).")
 
     finally:
         # Cleanup test records directly via MongoDB
         print("\n--- Cleaning Up Phase 6B Test Records ---")
-        import os
         from pymongo import MongoClient
         from bson import ObjectId
         c = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/")
@@ -288,8 +298,8 @@ def run_tests():
             db["users"].delete_many({"email": {"$in": test_user_emails}})
             print(f"[PASS] Removed test user accounts: {test_user_emails}")
 
-        # Verify DB integrity
-        expected_counts = {'services': 6, 'users': 4, 'providers': 3, 'reviews': 1, 'bookings': 12}
+        # Verify DB integrity: assert collection counts match baseline state before test
+        expected_counts = initial_counts or {'services': 6, 'users': 4, 'providers': 3, 'reviews': 1, 'bookings': 13}
         for col, exp in expected_counts.items():
             actual = db[col].count_documents({})
             assert actual == exp, f"DB count mismatch for {col}: expected {exp}, got {actual}"

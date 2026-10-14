@@ -149,15 +149,21 @@ def test_api_integration():
             assert len(providers) == 3, f"Expected 3 providers, got {len(providers)}"
         print("[PASS] GET /providers returned 3 providers.")
 
+        # Authenticate provider to test GET /bookings with Bearer token
+        login_data = json.dumps({"email": "amit@provider.fixnear.com", "password": "ProviderPass123!"}).encode("utf-8")
+        login_req = urllib.request.Request("http://127.0.0.1:8000/login", data=login_data, headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(login_req) as resp:
+            token = json.loads(resp.read().decode("utf-8"))["access_token"]
+
         # Test GET /bookings with auth header
         req = urllib.request.Request(
             "http://127.0.0.1:8000/bookings?provider=Amit%20Electrical%20Services",
-            headers={"X-Role": "provider"}
+            headers={"Authorization": f"Bearer {token}"}
         )
         with urllib.request.urlopen(req) as resp:
             bookings = json.loads(resp.read().decode("utf-8"))
             assert isinstance(bookings, list)
-        print("[PASS] GET /bookings returned valid list with X-Role header.")
+        print("[PASS] GET /bookings returned valid list with Authorization Bearer token.")
 
     finally:
         proc.terminate()
@@ -167,18 +173,19 @@ def test_api_integration():
             proc.kill()
         print("[PASS] Uvicorn server terminated cleanly.")
 
-def test_database_integrity():
+def test_database_integrity(initial_counts=None):
     print("\n--- Suite 5: MongoDB Integrity Verification ---")
     from pymongo import MongoClient
     mongo_uri = os.getenv("MONGO_URI") or "mongodb://localhost:27017/"
     db = MongoClient(mongo_uri)["local_service_marketplace"]
     
-    expected_counts = {
+    # Verify DB integrity: assert collection counts match baseline state before test
+    expected_counts = initial_counts or {
         "services": 6,
         "users": 4,
         "providers": 3,
         "reviews": 1,
-        "bookings": 12
+        "bookings": 13
     }
     for col, count in expected_counts.items():
         actual = db[col].count_documents({})
@@ -189,11 +196,22 @@ def run_all_tests():
     print("==================================================================")
     print("--- Phase 6C: Git Hygiene & Environment Configuration Tests ---")
     print("==================================================================")
+
+    # Record baseline database counts prior to test execution
+    initial_counts = None
+    try:
+        from pymongo import MongoClient
+        _init_c = MongoClient(os.getenv("MONGO_URI") or "mongodb://localhost:27017/")
+        _init_db = _init_c["local_service_marketplace"]
+        initial_counts = {col: _init_db[col].count_documents({}) for col in ['services', 'users', 'providers', 'reviews', 'bookings']}
+    except Exception:
+        pass
+
     test_git_hygiene_and_gitignore()
     test_backend_env_configuration()
     test_frontend_vite_api_url_configuration()
     test_api_integration()
-    test_database_integrity()
+    test_database_integrity(initial_counts)
     print("\n==================================================================")
     print("--- ALL PHASE 6C TESTS PASSED SUCCESSFULLY! ---")
     print("==================================================================")

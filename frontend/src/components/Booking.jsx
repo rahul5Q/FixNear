@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { API_BASE_URL } from '../config'
 
-function Booking({ user, provider, onBack, onBookingSuccess }) {
+function Booking({ user, token, provider, onBack, onBookingSuccess }) {
   const [userEmail, setUserEmail] = useState(user?.email || '')
   const [service, setService] = useState(provider?.service || '')
   const [providerName, setProviderName] = useState(provider?.name || '')
@@ -12,6 +12,8 @@ function Booking({ user, provider, onBack, onBookingSuccess }) {
   const [isSuccess, setIsSuccess] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const redirectTimerRef = useRef(null)
+
+  const authToken = token || localStorage.getItem('token')
 
   useEffect(() => {
     return () => {
@@ -38,11 +40,16 @@ function Booking({ user, provider, onBack, onBookingSuccess }) {
     setMessage('')
 
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(`${API_BASE_URL}/bookings`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: JSON.stringify({
           user_email: emailToSend,
           service,

@@ -1,21 +1,28 @@
 import { useState, useEffect } from 'react'
 import { API_BASE_URL } from '../config'
 
-function Profile({ user, onBack, onUpdateUser }) {
+function Profile({ user, token, onBack, onUpdateUser }) {
   const [name, setName] = useState(user?.name || '')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [isError, setIsError] = useState(false)
 
+  const authToken = token || localStorage.getItem('token')
+
   useEffect(() => {
     let isMounted = true
-    if (user?.email) {
-      fetch(`${API_BASE_URL}/profile?email=${encodeURIComponent(user.email)}`, {
+    if (user?.email && authToken) {
+      fetch(`${API_BASE_URL}/profile`, {
         headers: {
-          'X-User-Email': user.email
+          'Authorization': `Bearer ${authToken}`
         }
       })
-        .then((res) => res.json())
+        .then((res) => {
+          if (res.status === 401) {
+            throw new Error('Session expired. Please log in again.')
+          }
+          return res.json()
+        })
         .then((data) => {
           if (isMounted && data.name) {
             setName(data.name)
@@ -23,12 +30,16 @@ function Profile({ user, onBack, onUpdateUser }) {
         })
         .catch((err) => {
           console.error('Error fetching profile:', err)
+          if (isMounted && err.message.includes('Session expired')) {
+            setMessage('Session expired. Please log in again.')
+            setIsError(true)
+          }
         })
     }
     return () => {
       isMounted = false
     }
-  }, [user?.email])
+  }, [user?.email, authToken])
 
   const handleUpdate = async (e) => {
     e.preventDefault()
@@ -51,12 +62,16 @@ function Profile({ user, onBack, onUpdateUser }) {
     setIsError(false)
 
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(`${API_BASE_URL}/profile`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Email': user?.email
-        },
+        headers,
         body: JSON.stringify({
           email: user?.email,
           name: trimmedName

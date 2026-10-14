@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react'
 import { API_BASE_URL } from '../config'
 
-function ManageBookings({ user, onBack, initialProvider }) {
+function ManageBookings({ user, token, onBack, initialProvider }) {
   const [providers, setProviders] = useState([])
   const [selectedProvider, setSelectedProvider] = useState(
-    initialProvider?.name || 'All'
+    user?.provider_name || initialProvider?.name || 'All'
   )
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionMessage, setActionMessage] = useState('')
   const [updatingId, setUpdatingId] = useState(null)
+
+  const authToken = token || localStorage.getItem('token')
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/providers`)
@@ -21,21 +23,24 @@ function ManageBookings({ user, onBack, initialProvider }) {
   useEffect(() => {
     let isMounted = true
 
-    const url =
-      selectedProvider === 'All'
-        ? `${API_BASE_URL}/bookings`
-        : `${API_BASE_URL}/bookings?provider=${encodeURIComponent(selectedProvider)}`
+    if (!user || user.role !== 'provider' || !authToken) {
+      return
+    }
+
+    const providerFilter = user.provider_name || (selectedProvider === 'All' ? '' : selectedProvider)
+    const url = providerFilter
+      ? `${API_BASE_URL}/bookings?provider=${encodeURIComponent(providerFilter)}`
+      : `${API_BASE_URL}/bookings`
 
     const headers = {
-      'X-Role': 'provider',
-      ...(user?.email ? { 'X-User-Email': user.email } : {})
+      'Authorization': `Bearer ${authToken}`
     }
 
     fetch(url, { headers })
       .then((res) => res.json())
       .then((data) => {
         if (isMounted) {
-          setBookings(data)
+          setBookings(Array.isArray(data) ? data : [])
           setLoading(false)
         }
       })
@@ -49,24 +54,25 @@ function ManageBookings({ user, onBack, initialProvider }) {
     return () => {
       isMounted = false
     }
-  }, [selectedProvider, user?.email])
+  }, [selectedProvider, user, authToken])
 
   const refreshBookings = () => {
+    if (!user || user.role !== 'provider' || !authToken) return
     setLoading(true)
-    const url =
-      selectedProvider === 'All'
-        ? `${API_BASE_URL}/bookings`
-        : `${API_BASE_URL}/bookings?provider=${encodeURIComponent(selectedProvider)}`
+
+    const providerFilter = user.provider_name || (selectedProvider === 'All' ? '' : selectedProvider)
+    const url = providerFilter
+      ? `${API_BASE_URL}/bookings?provider=${encodeURIComponent(providerFilter)}`
+      : `${API_BASE_URL}/bookings`
 
     const headers = {
-      'X-Role': 'provider',
-      ...(user?.email ? { 'X-User-Email': user.email } : {})
+      'Authorization': `Bearer ${authToken}`
     }
 
     fetch(url, { headers })
       .then((res) => res.json())
       .then((data) => {
-        setBookings(data)
+        setBookings(Array.isArray(data) ? data : [])
         setLoading(false)
       })
       .catch((err) => {
@@ -75,25 +81,25 @@ function ManageBookings({ user, onBack, initialProvider }) {
       })
   }
 
-  const handleUpdateStatus = async (bookingId, newStatus, providerName) => {
+  const handleUpdateStatus = async (bookingId, newStatus) => {
     setUpdatingId(bookingId)
     setActionMessage('')
 
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`
+      }
+
       const response = await fetch(
         `${API_BASE_URL}/bookings/${bookingId}/status`,
         {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Role': 'provider',
-            ...(user?.email ? { 'X-User-Email': user.email } : {})
-          },
+          headers,
           body: JSON.stringify({
-            status: newStatus,
-            role: 'provider',
-            provider_name: providerName,
-            updater_email: user?.email
+            status: newStatus
           })
         }
       )
@@ -113,6 +119,27 @@ function ManageBookings({ user, onBack, initialProvider }) {
     } finally {
       setUpdatingId(null)
     }
+  }
+
+  if (!user || user.role !== 'provider') {
+    return (
+      <div className="bookings-page">
+        <div className="bookings-container" style={{ textAlign: 'center', padding: '50px 20px' }}>
+          <h2>Provider Access Required</h2>
+          <p style={{ marginTop: '12px', color: '#64748b' }}>
+            Only authenticated service providers can access the Booking Management portal.
+          </p>
+          <p style={{ marginTop: '6px', color: '#64748b' }}>
+            Please log in with a provider account (e.g. <code>amit@provider.fixnear.com</code>) to view and manage bookings.
+          </p>
+          <div style={{ marginTop: '24px', display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <button type="button" onClick={onBack}>
+              Go Back
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -205,7 +232,7 @@ function ManageBookings({ user, onBack, initialProvider }) {
                       booking.status === 'Accepted'
                     }
                     onClick={() =>
-                      handleUpdateStatus(booking.id, 'Accepted', booking.provider)
+                      handleUpdateStatus(booking.id, 'Accepted')
                     }
                     className="status-btn status-btn-accept"
                   >
@@ -220,7 +247,7 @@ function ManageBookings({ user, onBack, initialProvider }) {
                       booking.status === 'Rejected'
                     }
                     onClick={() =>
-                      handleUpdateStatus(booking.id, 'Rejected', booking.provider)
+                      handleUpdateStatus(booking.id, 'Rejected')
                     }
                     className="status-btn status-btn-reject"
                   >
@@ -234,7 +261,7 @@ function ManageBookings({ user, onBack, initialProvider }) {
                       booking.status === 'Completed'
                     }
                     onClick={() =>
-                      handleUpdateStatus(booking.id, 'Completed', booking.provider)
+                      handleUpdateStatus(booking.id, 'Completed')
                     }
                     className="status-btn status-btn-complete"
                   >
@@ -249,7 +276,7 @@ function ManageBookings({ user, onBack, initialProvider }) {
                       booking.status === 'Pending'
                     }
                     onClick={() =>
-                      handleUpdateStatus(booking.id, 'Pending', booking.provider)
+                      handleUpdateStatus(booking.id, 'Pending')
                     }
                     className="status-btn status-btn-pending"
                   >

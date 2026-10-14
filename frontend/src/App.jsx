@@ -29,6 +29,9 @@ function App() {
 
     return savedUser ? JSON.parse(savedUser) : null
   })
+  const [token, setToken] = useState(() => {
+    return localStorage.getItem('token') || null
+  })
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState('')
@@ -159,7 +162,9 @@ function App() {
         user={user}
         onLogout={() => {
           localStorage.removeItem('user')
+          localStorage.removeItem('token')
           setUser(null)
+          setToken(null)
           setCurrentPage('home')
         }}
         onDashboard={() => setCurrentPage('dashboard')}
@@ -167,78 +172,91 @@ function App() {
       />
 
       {currentPage === 'login' && (
-  <Login
-    onLogin={(data) => {
-      setUser(data)
-      setCurrentPage('dashboard')
-    }}
-  />
-)}
+        <Login
+          onLogin={(data) => {
+            setUser({
+              name: data.name,
+              email: data.email,
+              role: data.role || 'customer',
+              provider_name: data.provider_name || null
+            })
+            setToken(data.access_token)
+            setCurrentPage('dashboard')
+          }}
+        />
+      )}
 
-
-      {currentPage === 'register' && <Register />}
+      {currentPage === 'register' && (
+        <Register
+          onRegisterSuccess={() => setCurrentPage('login')}
+        />
+      )}
 
       {currentPage === 'dashboard' && (
-  <Dashboard
-    user={user}
-    onBookService={() => setCurrentPage('home')}
-    onViewBookings={() => setCurrentPage('my-bookings')}
-    onManageBookings={() => setCurrentPage('manage-bookings')}
-    onProfile={() => setCurrentPage('profile')}
-  />
-)}
+        <Dashboard
+          user={user}
+          onBookService={() => setCurrentPage('home')}
+          onViewBookings={() => setCurrentPage('my-bookings')}
+          onManageBookings={() => setCurrentPage('manage-bookings')}
+          onProfile={() => setCurrentPage('profile')}
+        />
+      )}
 
-{currentPage === 'profile' && (
-  <Profile
-    user={user}
-    onBack={() => setCurrentPage('dashboard')}
-    onUpdateUser={(updatedData) => {
-      const updatedUser = { ...user, ...updatedData }
-      setUser(updatedUser)
-      localStorage.setItem('user', JSON.stringify(updatedUser))
-    }}
-  />
-)}
+      {currentPage === 'profile' && (
+        <Profile
+          user={user}
+          token={token}
+          onBack={() => setCurrentPage('dashboard')}
+          onUpdateUser={(updatedData) => {
+            const updatedUser = { ...user, ...updatedData }
+            setUser(updatedUser)
+            localStorage.setItem('user', JSON.stringify(updatedUser))
+          }}
+        />
+      )}
 
-{currentPage === 'manage-bookings' && (
-  <ManageBookings
-    user={user}
-    initialProvider={selectedProvider}
-    onBack={() => {
-      if (user) {
-        setCurrentPage('dashboard')
-      } else if (selectedProvider) {
-        setCurrentPage('provider-profile')
-      } else {
-        setCurrentPage('home')
-      }
-    }}
-  />
-)}
+      {currentPage === 'manage-bookings' && (
+        <ManageBookings
+          user={user}
+          token={token}
+          initialProvider={selectedProvider}
+          onBack={() => {
+            if (user) {
+              setCurrentPage('dashboard')
+            } else if (selectedProvider) {
+              setCurrentPage('provider-profile')
+            } else {
+              setCurrentPage('home')
+            }
+          }}
+        />
+      )}
 
-{currentPage === 'my-bookings' && (
-  <MyBookings
-    user={user}
-    onBackToDashboard={() => setCurrentPage('dashboard')}
-  />
-)}
+      {currentPage === 'my-bookings' && (
+        <MyBookings
+          user={user}
+          token={token}
+          onBackToDashboard={() => setCurrentPage('dashboard')}
+        />
+      )}
 
-{currentPage === 'booking' && (
-  <Booking
-    user={user}
-    provider={selectedProvider}
-    onBack={() => {
-      if (selectedProvider) {
-        setCurrentPage('provider-profile')
-      } else if (user) {
-        setCurrentPage('dashboard')
-      } else {
-        setCurrentPage('home')
-      }
-    }}
-    onBookingSuccess={() => setCurrentPage('dashboard')}
-  />
-)}
+      {currentPage === 'booking' && (
+        <Booking
+          user={user}
+          token={token}
+          provider={selectedProvider}
+          onBack={() => {
+            if (selectedProvider) {
+              setCurrentPage('provider-profile')
+            } else if (user) {
+              setCurrentPage('dashboard')
+            } else {
+              setCurrentPage('home')
+            }
+          }}
+          onBookingSuccess={() => setCurrentPage('dashboard')}
+        />
+      )}
 
 {currentPage === 'provider-profile' && (
   <ProviderProfile
