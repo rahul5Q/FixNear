@@ -181,7 +181,7 @@ def test_production_secret_validation():
         assert failed, "Failed to reject missing MONGO_URI in production mode!"
         print("[PASS] Missing MONGO_URI in production mode fails startup with RuntimeError.")
 
-        prod_mongo = "mongodb+srv://admin:pass@cluster0.mongodb.net/fixnear"
+        prod_mongo = "mongodb://localhost:27017/"
         os.environ["MONGO_URI"] = prod_mongo
         assert main.get_validated_mongo_uri() == prod_mongo
         print("[PASS] Valid MONGO_URI in production mode accepted.")
